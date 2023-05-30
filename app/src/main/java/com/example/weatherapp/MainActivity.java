@@ -1,0 +1,189 @@
+package com.example.weatherapp;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
+import android.Manifest;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationManager;
+import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
+import com.google.android.material.textfield.TextInputEditText;
+import com.squareup.picasso.Picasso;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+public class MainActivity extends AppCompatActivity {
+    private RelativeLayout homeRl;
+    private ProgressBar loadingPB;
+    private TextView cityNameTV, temperatureTV, conditionTV;
+    private RecyclerView weatherRV;
+    private TextInputEditText cityEdt;
+    private ImageView backIV, IconIV, searchIV;
+    private ArrayList<WeatherRVModel> weatherRVModelArrayList;
+    private WeatherRVAdapter weatherRVAdapter;
+
+    private LocationManager locationManager;
+    private int PERMISSION_CODE = 1;
+
+    private String cityname;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+        homeRl = findViewById(R.id.idRLHome);
+        loadingPB = findViewById(R.id.idPBLoading);
+        cityNameTV = findViewById(R.id.TVCityname);
+        temperatureTV = findViewById(R.id.idTVTemperature);
+        conditionTV = findViewById(R.id.idTVCondition);
+        weatherRV = findViewById(R.id.idRvWeather);
+        cityEdt = findViewById(R.id.idEDTCity);
+        backIV = findViewById(R.id.idIVBack);
+        IconIV = findViewById(R.id.idIVIcon);
+        searchIV = findViewById(R.id.idIVSearch);
+        weatherRVModelArrayList = new ArrayList<>();
+        weatherRVAdapter = new WeatherRVAdapter(weatherRVModelArrayList);
+        weatherRV.setAdapter(weatherRVAdapter);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, PERMISSION_CODE);
+        }
+
+        Location location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+        if (location != null) {
+            double latitude = location.getLatitude();
+            double longitude = location.getLongitude();
+            cityname = getCityName(latitude, longitude);
+            getWeatherInfo(cityname);
+        }
+
+        searchIV.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                String city = cityEdt.getText().toString();
+                if (city.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "Please enter a city name", Toast.LENGTH_SHORT).show();
+                } else {
+                    cityNameTV.setText(city);
+                    getWeatherInfo(city);
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Permissions granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(MainActivity.this, "Please provide the permission", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        }
+    }
+
+    private String getCityName(double latitude, double longitude) {
+        String cityName = "NotFound";
+        Geocoder gcd = new Geocoder(getBaseContext(), Locale.getDefault());
+        try {
+            List<Address> addresses = gcd.getFromLocation(latitude, longitude, 1);
+            if (addresses.size() > 0) {
+                cityName = addresses.get(0).getLocality();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return cityName;
+    }
+
+    private void getWeatherInfo(String cityname) {
+        String apiKey = "7bdfb101d0e34719924173858232905";
+        String url = "http://api.weatherapi.com/v1/forecast.json?key=" + apiKey + "&q=" + cityname + "&days=1&aqi=no&alerts=no";
+        cityNameTV.setText(cityname);
+        RequestQueue requestQueue = Volley.newRequestQueue(MainActivity.this);
+        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(Request.Method.GET, url, null,
+                new Response.Listener<JSONObject>() {
+                    @Override
+                    public void onResponse(JSONObject response) {
+                        loadingPB.setVisibility(View.GONE);
+                        homeRl.setVisibility(View.VISIBLE);
+                        weatherRVModelArrayList.clear();
+                        try {
+                            JSONObject currentObj = response.getJSONObject("current");
+                            String temperature = currentObj.getString("temp_c");
+                            temperatureTV.setText(temperature + "°C");
+                            int isDay = currentObj.getInt("is_day");
+                            String condition = currentObj.getJSONObject("condition").getString("text");
+                            String conditionIcon = currentObj.getJSONObject("condition").getString("icon");
+                            Picasso.get().load("http:" + conditionIcon).into(IconIV);
+                            conditionTV.setText(condition);
+                            if (isDay == 1) {
+                                Picasso.get().load("https://previews.123rf.com/images/1xpert/1xpert1210/1xpert121000031/15960961-rural-morning-summer-good-weather.jpg").into(backIV);
+                            } else {
+                                Picasso.get().load("https://c0.wallpaperflare.com/preview/133/882/513/nature-weather-outdoors-night.jpg").into(backIV);
+                            }
+
+                            JSONObject forecastObj = response.getJSONObject("forecast");
+                            JSONArray forecastdayArray = forecastObj.getJSONArray("forecastday");
+                            if (forecastdayArray.length() > 0) {
+                                JSONObject forecastdayObj = forecastdayArray.getJSONObject(0);
+                                JSONArray hourArray = forecastdayObj.getJSONArray("hour");
+                                for (int i = 0; i < hourArray.length(); i++) {
+                                    JSONObject hourObj = hourArray.getJSONObject(i);
+                                    String time = hourObj.getString("time");
+                                    String temper = hourObj.getString("temp_c");
+                                    String img = hourObj.getJSONObject("condition").getString("icon");
+                                    String wind = hourObj.getString("wind_kph");
+                                    weatherRVModelArrayList.add(new WeatherRVModel(time, temper, img, wind));
+                                }
+                                weatherRVAdapter.notifyDataSetChanged();
+                            }
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                },
+                new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        Toast.makeText(MainActivity.this, "Please enter a valid city name", Toast.LENGTH_SHORT).show();
+                    }
+                });
+
+        requestQueue.add(jsonObjectRequest);
+    }
+}
+
